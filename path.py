@@ -18,13 +18,6 @@ class Path:
     def contains_node(self, node):
         return node in self.nodes
 
-    def cost_to_node(self, node):
-        if not self.contains_node(node):
-            return -1
-        # In a simple path, the cost is cumulative
-        # For more complex paths, we'd need to track segment costs
-        return self.cost  # Simplified version
-
     def copy(self):
         new_path = Path()
         new_path.nodes = self.nodes.copy()
