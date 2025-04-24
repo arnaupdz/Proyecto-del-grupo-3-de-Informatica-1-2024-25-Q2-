@@ -1,250 +1,317 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
-from graph import Graph, BuildGraphFromFile, Plot, PlotNode, AddNode, AddSegment, GetClosest
-from node import Node
-from segment import Segment
+from tkinter import filedialog, messagebox
+from graph import *
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
-import os
 
 
-class GraphEditor:
-    def __init__(self, master):
-        self.master = master
-        master.title("Graph Editor")
-        self.current_graph = Graph()
-        self.selected_node = None
-        self.drawing_mode = None
-        self.setup_ui()
-        self.canvas.mpl_connect('button_press_event', self.on_click)
+class GraphApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Graph Visualization Tool")
+        self.current_graph = None
 
-    def setup_ui(self):
-        control_frame = tk.Frame(self.master)
-        control_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        # Create frames
+        self.control_frame = tk.Frame(root)
+        self.control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
 
-        graph_frame = tk.LabelFrame(control_frame, text="Graph Operations")
-        graph_frame.pack(side=tk.LEFT, padx=5, pady=5)
+        self.canvas_frame = tk.Frame(root)
+        self.canvas_frame.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH, padx=5, pady=5)
 
-        tk.Button(graph_frame, text="Show Example Graph", command=self.show_example_graph).pack(side=tk.LEFT, padx=2)
-        tk.Button(graph_frame, text="Show Custom Graph", command=self.show_custom_graph).pack(side=tk.LEFT, padx=2)
-        tk.Button(graph_frame, text="Load Graph", command=self.load_graph).pack(side=tk.LEFT, padx=2)
-        tk.Button(graph_frame, text="Save Graph", command=self.save_graph).pack(side=tk.LEFT, padx=2)
-        tk.Button(graph_frame, text="New Graph", command=self.new_graph).pack(side=tk.LEFT, padx=2)
+        # Control buttons
+        tk.Button(self.control_frame, text="Show Example Graph 1",
+                  command=self.show_example1).pack(fill=tk.X, pady=2)
+        tk.Button(self.control_frame, text="Show Example Graph 2",
+                  command=self.show_example2).pack(fill=tk.X, pady=2)
+        tk.Button(self.control_frame, text="Load Graph from File",
+                  command=self.load_graph).pack(fill=tk.X, pady=2)
+        tk.Button(self.control_frame, text="Save Graph to File",
+                  command=self.save_graph).pack(fill=tk.X, pady=2)
+        tk.Button(self.control_frame, text="Add Node",
+                  command=self.add_node_dialog).pack(fill=tk.X, pady=2)
+        tk.Button(self.control_frame, text="Add Segment",
+                  command=self.add_segment_dialog).pack(fill=tk.X, pady=2)
+        tk.Button(self.control_frame, text="Remove Node",
+                  command=self.remove_node_dialog).pack(fill=tk.X, pady=2)
+        tk.Button(self.control_frame, text="Clear Graph",
+                  command=self.clear_graph).pack(fill=tk.X, pady=2)
 
-        node_frame = tk.LabelFrame(control_frame, text="Node Operations")
-        node_frame.pack(side=tk.LEFT, padx=5, pady=5)
-
-        tk.Button(node_frame, text="Add Node", command=self.start_add_node).pack(side=tk.LEFT, padx=2)
-        tk.Button(node_frame, text="Delete Node", command=self.delete_node).pack(side=tk.LEFT, padx=2)
-        tk.Button(node_frame, text="Add Segment", command=self.start_add_segment).pack(side=tk.LEFT, padx=2)
-        tk.Button(node_frame, text="Show Neighbors", command=self.show_neighbors).pack(side=tk.LEFT, padx=2)
-
-        self.status_label = tk.Label(control_frame, text="Ready")
-        self.status_label.pack(side=tk.LEFT, padx=10)
-
-        self.figure = Figure(figsize=(8, 6))
-        self.canvas = FigureCanvasTkAgg(self.figure, master=self.master)
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
+        # Node selection
         self.node_var = tk.StringVar()
-        self.node_dropdown = tk.OptionMenu(control_frame, self.node_var, "")
-        self.node_dropdown.pack(side=tk.LEFT, padx=5)
-        self.node_var.set("Select node")
+        self.node_label = tk.Label(self.control_frame, text="Select Node:")
+        self.node_label.pack(pady=(10, 2))
+        self.node_menu = tk.OptionMenu(self.control_frame, self.node_var, "")
+        self.node_menu.pack(fill=tk.X)
+        tk.Button(self.control_frame, text="Show Node Neighbors",
+                  command=self.show_node_neighbors).pack(fill=tk.X, pady=2)
 
-        self.update_plot()
+        # Matplotlib figure
+        self.fig, self.ax = plt.subplots(figsize=(8, 6))
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.canvas_frame)
+        self.canvas.get_tk_widget().pack(expand=True, fill=tk.BOTH)
 
-    def update_plot(self):
-        self.figure.clf()
-        ax = self.figure.add_subplot(111)
+        # Initialize with example graph
+        self.show_example1()
 
-        for seg in self.current_graph.segments:
-            x1, y1 = seg.origin.x, seg.origin.y
-            x2, y2 = seg.destination.x, seg.destination.y
-            ax.plot([x1, x2], [y1, y2], 'k-')
-            dx = x2 - x1
-            dy = y2 - y1
-            ax.arrow(x1, y1, dx * 0.9, dy * 0.9, head_width=0.3, head_length=0.5, fc='k', ec='k')
-            mid_x = (x1 + x2) / 2
-            mid_y = (y1 + y2) / 2
-            ax.text(mid_x, mid_y, f"{seg.cost:.1f}", color='red')
+    def plot_graph(self, g=None):
+        if g is None:
+            g = self.current_graph
 
-        for node in self.current_graph.nodes:
-            color = 'blue' if node == self.selected_node else 'gray'
-            ax.plot(node.x, node.y, 'o', markersize=10, color=color)
-            ax.text(node.x, node.y, f" {node.name}", fontsize=12)
-
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.grid(True)
-        self.canvas.draw()
-        self.update_node_dropdown()
-
-    def update_node_dropdown(self):
-        menu = self.node_dropdown["menu"]
-        menu.delete(0, "end")
-        for node in self.current_graph.nodes:
-            menu.add_command(label=node.name, command=lambda n=node.name: self.select_node_by_name(n))
-        if not self.current_graph.nodes:
-            self.node_var.set("No nodes")
-
-    def select_node_by_name(self, name):
-        for node in self.current_graph.nodes:
-            if node.name == name:
-                self.selected_node = node
-                self.node_var.set(name)
-                self.update_plot()
-                break
-
-    def on_click(self, event):
-        if not event.inaxes:
+        if g is None:
             return
-        x, y = event.xdata, event.ydata
 
-        if self.drawing_mode == "add_node":
-            name = simpledialog.askstring("Add Node", "Enter node name:")
-            if name:
-                AddNode(self.current_graph, Node(name, x, y))
-                self.update_plot()
-                self.drawing_mode = None
-                self.status_label.config(text="Ready")
+        self.ax.clear()
 
-        elif self.drawing_mode == "add_segment":
-            closest = GetClosest(self.current_graph, x, y)
-            if closest:
-                if not self.selected_node:
-                    self.selected_node = closest
-                    self.status_label.config(text=f"Selected {closest.name}, click destination node")
-                else:
-                    cost = simpledialog.askfloat("Add Segment", "Enter segment cost:", minvalue=0)
-                    if cost is not None:
-                        seg_name = f"{self.selected_node.name}{closest.name}"
-                        if AddSegment(self.current_graph, seg_name, self.selected_node.name, closest.name):
-                            for seg in self.current_graph.segments:
-                                if seg.name == seg_name:
-                                    seg.cost = cost
-                                    break
-                        self.selected_node = None
-                        self.drawing_mode = None
-                        self.update_plot()
-                        self.status_label.config(text="Ready")
+        # Update node selection menu
+        self.node_var.set("")
+        self.node_menu['menu'].delete(0, 'end')
+        for node in g.nodes:
+            self.node_menu['menu'].add_command(label=node.name,
+                                               command=tk._setit(self.node_var, node.name))
 
-    def start_add_node(self):
-        self.drawing_mode = "add_node"
-        self.status_label.config(text="Click on graph to add node")
+        # Draw segments
+        for seg in g.segments:
+            self.ax.plot([seg.origin.x, seg.destination.x],
+                         [seg.origin.y, seg.destination.y],
+                         'k-', alpha=0.5)
 
-    def start_add_segment(self):
-        self.drawing_mode = "add_segment"
-        self.selected_node = None
-        self.status_label.config(text="Click origin node first")
+            # Add arrow
+            self.ax.annotate('', xy=(seg.destination.x, seg.destination.y),
+                             xytext=(seg.origin.x, seg.origin.y),
+                             arrowprops=dict(arrowstyle='->', color='black'))
 
-    def delete_node(self):
-        if not self.selected_node:
-            messagebox.showwarning("No Selection", "Please select a node first")
-            return
-        self.current_graph.segments = [seg for seg in self.current_graph.segments if
-                                       seg.origin != self.selected_node and seg.destination != self.selected_node]
-        self.current_graph.nodes.remove(self.selected_node)
-        self.selected_node = None
-        self.update_plot()
+            # Add cost label
+            mid_x = (seg.origin.x + seg.destination.x) / 2
+            mid_y = (seg.origin.y + seg.destination.y) / 2
+            self.ax.text(mid_x, mid_y, f"{seg.cost:.1f}",
+                         bbox=dict(facecolor='white', alpha=0.7))
 
-    def show_neighbors(self):
-        if not self.selected_node:
-            messagebox.showwarning("No Selection", "Please select a node first")
-            return
-        self.figure.clf()
-        PlotNode(self.current_graph, self.selected_node.name)
+        # Draw nodes
+        for node in g.nodes:
+            self.ax.plot(node.x, node.y, 'o', markersize=10, color='blue')
+            self.ax.text(node.x, node.y + 0.5, node.name,
+                         ha='center', va='center', fontsize=10)
+
+        self.ax.grid(True)
+        self.ax.set_title("Graph Visualization")
         self.canvas.draw()
 
-    def show_example_graph(self):
-        self.current_graph = self.create_example_graph()
-        self.selected_node = None
-        self.update_plot()
+    def show_example1(self):
+        self.current_graph = CreateGraph_1()
+        self.plot_graph()
 
-    def create_example_graph(self):
-        g = Graph()
-        nodes = [("A", 1, 20), ("B", 8, 17), ("C", 15, 20), ("D", 18, 15), ("E", 2, 4), ("F", 6, 5),
-                 ("G", 12, 12), ("H", 10, 3), ("I", 19, 1), ("J", 13, 5), ("K", 3, 15), ("L", 4, 10)]
-        for name, x, y in nodes:
-            AddNode(g, Node(name, x, y))
-
-        segments = [("AB", "A", "B", 5.0), ("AE", "A", "E", 3.5), ("AK", "A", "K", 4.2),
-                    ("BA", "B", "A", 5.0), ("BC", "B", "C", 6.1), ("BF", "B", "F", 2.8),
-                    ("BK", "B", "K", 3.0), ("BG", "B", "G", 4.5), ("CD", "C", "D", 3.7),
-                    ("CG", "C", "G", 5.2), ("DG", "D", "G", 4.8), ("DH", "D", "H", 6.3),
-                    ("DI", "D", "I", 7.1), ("EF", "E", "F", 2.5), ("FL", "F", "L", 3.2),
-                    ("GB", "G", "B", 4.5), ("GF", "G", "F", 3.8), ("GH", "G", "H", 4.0),
-                    ("ID", "I", "D", 7.1), ("IJ", "I", "J", 5.5), ("JI", "J", "I", 5.5),
-                    ("KA", "K", "A", 4.2), ("KL", "K", "L", 2.7), ("LK", "L", "K", 2.7),
-                    ("LF", "L", "F", 3.0)]
-        for name, orig, dest, cost in segments:
-            if AddSegment(g, name, orig, dest):
-                for seg in g.segments:
-                    if seg.name == name:
-                        seg.cost = cost
-                        break
-        return g
-
-    def show_custom_graph(self):
-        self.current_graph = self.create_custom_graph()
-        self.selected_node = None
-        self.update_plot()
-
-    def create_custom_graph(self):
-        g = Graph()
-        nodes = [("X", 0, 0), ("Y", 2, 2), ("Z", 4, 0), ("W", 2, -2), ("V", -2, 0), ("U", 0, 4)]
-        for name, x, y in nodes:
-            AddNode(g, Node(name, x, y))
-
-        segments = [("XY", "X", "Y", 3.0), ("YZ", "Y", "Z", 3.0), ("ZW", "Z", "W", 3.0),
-                    ("WX", "W", "X", 3.0), ("XV", "X", "V", 2.5), ("YU", "Y", "U", 2.5),
-                    ("VX", "V", "X", 2.5), ("UY", "U", "Y", 2.5), ("XZ", "X", "Z", 4.2),
-                    ("YW", "Y", "W", 4.2)]
-        for name, orig, dest, cost in segments:
-            if AddSegment(g, name, orig, dest):
-                for seg in g.segments:
-                    if seg.name == name:
-                        seg.cost = cost
-                        break
-        return g
+    def show_example2(self):
+        self.current_graph = CreateGraph_2()
+        self.plot_graph()
 
     def load_graph(self):
         filename = filedialog.askopenfilename(title="Select Graph File",
-                                              filetypes=(("Text files", "*.txt"), ("All files", "*.*")))
+                                              filetypes=[("Text files", "*.txt")])
         if filename:
-            g = BuildGraphFromFile(filename)
-            if g:
-                self.current_graph = g
-                self.selected_node = None
-                self.update_plot()
+            self.current_graph = LoadGraphFromFile(filename)
+            if self.current_graph:
+                self.plot_graph()
+            else:
+                messagebox.showerror("Error", "Failed to load graph from file")
 
     def save_graph(self):
-        if not self.current_graph.nodes:
-            messagebox.showwarning("Empty Graph", "There's nothing to save")
+        if self.current_graph is None:
+            messagebox.showwarning("Warning", "No graph to save")
             return
 
-        filename = filedialog.asksaveasfilename(
-            title="Save Graph As",
-            defaultextension=".txt",
-            filetypes=(("Text files", "*.txt"), ("All files", "*.*")))
-
+        filename = filedialog.asksaveasfilename(title="Save Graph As",
+                                                defaultextension=".txt",
+                                                filetypes=[("Text files", "*.txt")])
         if filename:
-            with open(filename, 'w') as f:
-                for node in self.current_graph.nodes:
-                    f.write(f"{node.name} {node.x} {node.y}\n")
+            if SaveGraphToFile(self.current_graph, filename):
+                messagebox.showinfo("Success", "Graph saved successfully")
+            else:
+                messagebox.showerror("Error", "Failed to save graph")
 
-                f.write("---\n")
+    def add_node_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Add Node")
 
-                for seg in self.current_graph.segments:
-                    f.write(f"{seg.name} {seg.origin.name} {seg.destination.name} {seg.cost:.1f}\n")
+        tk.Label(dialog, text="Name:").grid(row=0, column=0, padx=5, pady=5)
+        name_entry = tk.Entry(dialog)
+        name_entry.grid(row=0, column=1, padx=5, pady=5)
 
-    def new_graph(self):
+        tk.Label(dialog, text="X coordinate:").grid(row=1, column=0, padx=5, pady=5)
+        x_entry = tk.Entry(dialog)
+        x_entry.grid(row=1, column=1, padx=5, pady=5)
+
+        tk.Label(dialog, text="Y coordinate:").grid(row=2, column=0, padx=5, pady=5)
+        y_entry = tk.Entry(dialog)
+        y_entry.grid(row=2, column=1, padx=5, pady=5)
+
+        def add_node():
+            try:
+                name = name_entry.get()
+                x = float(x_entry.get())
+                y = float(y_entry.get())
+
+                if not name:
+                    messagebox.showerror("Error", "Name cannot be empty")
+                    return
+
+                if self.current_graph is None:
+                    self.current_graph = Graph()
+
+                if AddNode(self.current_graph, Node(name, x, y)):
+                    self.plot_graph()
+                    dialog.destroy()
+                else:
+                    messagebox.showerror("Error", "Node with this name already exists")
+            except ValueError:
+                messagebox.showerror("Error", "Invalid coordinates")
+
+        tk.Button(dialog, text="Add", command=add_node).grid(row=3, column=0, columnspan=2, pady=5)
+
+    def add_segment_dialog(self):
+        if self.current_graph is None or not self.current_graph.nodes:
+            messagebox.showwarning("Warning", "No nodes in the graph")
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Add Segment")
+
+        tk.Label(dialog, text="Segment name:").grid(row=0, column=0, padx=5, pady=5)
+        name_entry = tk.Entry(dialog)
+        name_entry.grid(row=0, column=1, padx=5, pady=5)
+
+        tk.Label(dialog, text="Origin node:").grid(row=1, column=0, padx=5, pady=5)
+        origin_var = tk.StringVar()
+        origin_menu = tk.OptionMenu(dialog, origin_var, *[n.name for n in self.current_graph.nodes])
+        origin_menu.grid(row=1, column=1, padx=5, pady=5)
+
+        tk.Label(dialog, text="Destination node:").grid(row=2, column=0, padx=5, pady=5)
+        dest_var = tk.StringVar()
+        dest_menu = tk.OptionMenu(dialog, dest_var, *[n.name for n in self.current_graph.nodes])
+        dest_menu.grid(row=2, column=1, padx=5, pady=5)
+
+        def add_segment():
+            name = name_entry.get()
+            origin = origin_var.get()
+            dest = dest_var.get()
+
+            if not name or not origin or not dest:
+                messagebox.showerror("Error", "All fields are required")
+                return
+
+            if origin == dest:
+                messagebox.showerror("Error", "Origin and destination cannot be the same")
+                return
+
+            if AddSegment(self.current_graph, name, origin, dest):
+                self.plot_graph()
+                dialog.destroy()
+            else:
+                messagebox.showerror("Error", "Failed to add segment (nodes not found)")
+
+        tk.Button(dialog, text="Add", command=add_segment).grid(row=3, column=0, columnspan=2, pady=5)
+
+    def remove_node_dialog(self):
+        if self.current_graph is None or not self.current_graph.nodes:
+            messagebox.showwarning("Warning", "No nodes in the graph")
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Remove Node")
+
+        tk.Label(dialog, text="Select node to remove:").pack(padx=5, pady=5)
+
+        node_var = tk.StringVar()
+        node_menu = tk.OptionMenu(dialog, node_var, *[n.name for n in self.current_graph.nodes])
+        node_menu.pack(padx=5, pady=5)
+
+        def remove_node():
+            node_name = node_var.get()
+            if not node_name:
+                messagebox.showerror("Error", "Please select a node")
+                return
+
+            if RemoveNode(self.current_graph, node_name):
+                self.plot_graph()
+                dialog.destroy()
+            else:
+                messagebox.showerror("Error", "Node not found")
+
+        tk.Button(dialog, text="Remove", command=remove_node).pack(pady=5)
+
+    def clear_graph(self):
         self.current_graph = Graph()
-        self.selected_node = None
-        self.update_plot()
+        self.plot_graph()
+
+    def show_node_neighbors(self):
+        if self.current_graph is None:
+            messagebox.showwarning("Warning", "No graph loaded")
+            return
+
+        node_name = self.node_var.get()
+        if not node_name:
+            messagebox.showwarning("Warning", "Please select a node")
+            return
+
+        self.ax.clear()
+
+        origin = None
+        for node in self.current_graph.nodes:
+            if node.name == node_name:
+                origin = node
+                break
+
+        if origin is None:
+            messagebox.showerror("Error", "Node not found")
+            return
+
+        neighbor_names = [n.name for n in origin.neighbors]
+
+        # Draw all segments first (gray)
+        for seg in self.current_graph.segments:
+            self.ax.plot([seg.origin.x, seg.destination.x],
+                         [seg.origin.y, seg.destination.y],
+                         'k-', alpha=0.2)
+
+        # Draw all nodes
+        for node in self.current_graph.nodes:
+            if node.name == node_name:
+                color = 'blue'
+                size = 12
+            elif node.name in neighbor_names:
+                color = 'green'
+                size = 10
+            else:
+                color = 'gray'
+                size = 8
+
+            self.ax.plot(node.x, node.y, 'o', markersize=size, color=color)
+            self.ax.text(node.x, node.y + 0.5, node.name,
+                         ha='center', va='center', fontsize=10)
+
+        # Highlight segments from origin to neighbors (red)
+        for seg in self.current_graph.segments:
+            if seg.origin.name == node_name:
+                self.ax.plot([seg.origin.x, seg.destination.x],
+                             [seg.origin.y, seg.destination.y],
+                             'r-', alpha=0.7)
+
+                # Add arrow
+                self.ax.annotate('', xy=(seg.destination.x, seg.destination.y),
+                                 xytext=(seg.origin.x, seg.origin.y),
+                                 arrowprops=dict(arrowstyle='->', color='red'))
+
+                # Add cost label
+                mid_x = (seg.origin.x + seg.destination.x) / 2
+                mid_y = (seg.origin.y + seg.destination.y) / 2
+                self.ax.text(mid_x, mid_y, f"{seg.cost:.1f}",
+                             bbox=dict(facecolor='white', alpha=0.7))
+
+        self.ax.grid(True)
+        self.ax.set_title(f"Node {node_name} and its neighbors")
+        self.canvas.draw()
 
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = GraphEditor(root)
+    app = GraphApp(root)
     root.mainloop()
