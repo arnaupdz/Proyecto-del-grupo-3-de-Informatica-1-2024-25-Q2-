@@ -1,45 +1,41 @@
-from node import Node
-from path import Path, AddNodeToPath, ContainsNode, CostToNode, PlotPath
-from graph import Graph, AddNode, AddSegment
+from graph import *
+from path import Path
 
-def test_path_functions():
-    print("Testing Path functions...")
+def test_reachability():
+    G = CreateGraph_1()
+    print("\nTesting reachability from node D:")
+    reachable = GetReachableNodes(G, "D")
+    print("Reachable nodes:", [n.name for n in reachable])
     
-    # Create some nodes
-    n1 = Node("A", 0, 0)
-    n2 = Node("B", 3, 4)
-    n3 = Node("C", 6, 0)
-    
-    # Test basic Path functionality
-    p = Path(n1)
-    print(p)  # Should show path with just A
-    
-    # Test AddNodeToPath
-    p2 = AddNodeToPath(p, n2, 5.0)
-    print(p2)  # Should show path A->B with cost 5.0
-    
-    # Test ContainsNode
-    print("Contains B:", ContainsNode(p2, n2))  # True
-    print("Contains C:", ContainsNode(p2, n3))  # False
-    
-    # Test CostToNode
-    print("Cost to B:", CostToNode(p2, n2))  # 5.0
-    print("Cost to C:", CostToNode(p2, n3))  # -1
-    
-    # Test PlotPath with a simple graph
-    g = Graph()
-    AddNode(g, n1)
-    AddNode(g, n2)
-    AddNode(g, n3)
-    AddSegment(g, "AB", "A", "B")
-    AddSegment(g, "BC", "B", "C")
-    
-    p3 = Path(n1)
-    p3 = AddNodeToPath(p3, n2, 5.0)
-    p3 = AddNodeToPath(p3, n3, 5.0)
-    
-    print("Showing path plot...")
-    PlotPath(g, p3)
+    print("Plotting reachable nodes...")
+    PlotReachableNodes(G, "D")
+
+def test_shortest_path():
+    G = CreateGraph_1()
+    print("\nTesting shortest path from B to F:")
+    path = FindShortestPath(G, "B", "F")
+    if path:
+        print("Shortest path found:", [n.name for n in path.nodes])
+        print("Total cost:", path.cost)
+        PlotPath(G, path)
+    else:
+        print("No path found")
 
 if __name__ == "__main__":
-    test_path_functions()
+    print("Testing graph functions...")
+    G = CreateGraph_1()
+    Plot(G)
+    
+    test_reachability()
+    test_shortest_path()
+    
+    # Also test with the simple graph
+    G2 = CreateGraph_2()
+    Plot(G2)
+    
+    print("\nTesting shortest path in simple graph (X to Z):")
+    path = FindShortestPath(G2, "X", "Z")
+    if path:
+        print("Shortest path found:", [n.name for n in path.nodes])
+        print("Total cost:", path.cost)
+        PlotPath(G2, path)
