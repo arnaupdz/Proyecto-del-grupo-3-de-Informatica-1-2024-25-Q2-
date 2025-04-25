@@ -9,4 +9,4 @@ URL del video: XXXXX
 Versión 2 generada por Ferran i Miquel
 Versión 2 verificada por Ferran i Miquel
 Versión 2 comunicada por Arnau
-URL del video: XXXXX
+URL del video: https://youtu.be/cMb8kYLf3Xg
