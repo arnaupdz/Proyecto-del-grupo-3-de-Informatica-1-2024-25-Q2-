@@ -14,4 +14,4 @@ URL del video: https://youtu.be/cMb8kYLf3Xg
 Versión 3 generada por Ferran y Arnau
 Versión 3 verificada por Ferran y Arnau
 Versión 3 comunicada por Miquel
-URL del video: 
+URL del video: https://drive.google.com/file/d/1xpUKfrg-zWstZ_JfEJ6KtrIw56lcnB3F/view?usp=sharing
