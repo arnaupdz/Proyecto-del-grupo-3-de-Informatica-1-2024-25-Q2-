@@ -76,73 +76,127 @@ def GetReachableNodes(graph, start_node_name):
     return reachable
 
 
-def FindShortestPath(graph, start_node_name, end_node_name, debug=False):
-    class Path:
-        def __init__(self, nodes, cost):
-            self.nodes = nodes
-            self.cost = cost
+def FindAlternativePath(graph, start_name, end_name, avoid_nodes):
+    """Encuentra un camino alternativo evitando nodos específicos (usa Dijkstra modificado)."""
+    start_node = next((node for node in graph.nodes if node.name == start_name), None)
+    end_node = next((node for node in graph.nodes if node.name == end_name), None)
 
-    print(f"\nBuscando camino de {start_node_name} a {end_node_name}") if debug else None
+    if not start_node or not end_node:
+        return None
 
+    # Inicialización
+    distances = {node.name: float('inf') for node in graph.nodes}
+    distances[start_name] = 0
+    previous = {node.name: None for node in graph.nodes}
+    unvisited = set(node.name for node in graph.nodes if node.name not in avoid_nodes)  # Ignorar nodos a evitar
+
+    while unvisited:
+        current_name = min(unvisited, key=lambda name: distances[name])
+        unvisited.remove(current_name)
+
+        if current_name == end_name:
+            path = Path()
+            path.nodes = []
+            path.cost = distances[end_name]
+
+            current = end_name
+            while current:
+                node = next((n for n in graph.nodes if n.name == current), None)
+                path.nodes.insert(0, node)
+                current = previous[current]
+
+            return path
+
+        current_node = next((node for node in graph.nodes if node.name == current_name), None)
+        for neighbor in current_node.neighbors:
+            if neighbor.name in avoid_nodes:  # Saltar nodos prohibidos
+                continue
+
+            segment = next((seg for seg in graph.segments
+                            if (seg.origin == current_node and seg.destination == neighbor) or
+                            (seg.origin == neighbor and seg.destination == current_node)), None)
+            if segment:
+                distance = distances[current_name] + segment.cost
+                if distance < distances[neighbor.name]:
+                    distances[neighbor.name] = distance
+                    previous[neighbor.name] = current_name
+
+    return None  # No hay camino válido
+
+
+def FindShortestPath(graph, start_node_name, end_node_name):
+    """
+    Implementación del algoritmo A* para encontrar el camino más corto entre dos nodos
+    Args:
+        graph: Objeto Graph que contiene nodos y segmentos
+        start_node_name: Nombre del nodo de inicio
+        end_node_name: Nombre del nodo destino
+    Returns:
+        Objeto Path con los nodos del camino y el costo total, o None si no hay camino
+    """
+    # 1. Obtener los nodos de inicio y fin
     start_node = next((n for n in graph.nodes if n.name == start_node_name), None)
     end_node = next((n for n in graph.nodes if n.name == end_node_name), None)
 
-    if not start_node:
-        print(f"Nodo inicial {start_node_name} no encontrado") if debug else None
-        return None
-    if not end_node:
-        print(f"Nodo final {end_node_name} no encontrado") if debug else None
-        return None
+    if not start_node or not end_node:
+        return None  # No existe alguno de los nodos
 
-    distances = {node: float('inf') for node in graph.nodes}
-    previous = {node: None for node in graph.nodes}
-    distances[start_node] = 0
-    unvisited = set(graph.nodes)
+    # 2. Función heurística (distancia euclidiana entre nodos)
+    def heuristic(node):
+        return ((node.x - end_node.x) ** 2 + (node.y - end_node.y) ** 2) ** 0.5
 
-    while unvisited:
-        current = min(unvisited, key=lambda node: distances[node])
-        print(f"\nNodo actual: {current.name} (distancia: {distances[current]})") if debug else None
+    # 3. Inicializar estructuras de datos
+    open_set = {start_node}  # Nodos por explorar
+    came_from = {}  # Diccionario para reconstruir el camino
 
-        if distances[current] == float('inf'):
-            print("Todos los nodos restantes son inalcanzables") if debug else None
-            break
+    # g_score[n] = costo real desde el inicio hasta n
+    g_score = {node: float('inf') for node in graph.nodes}
+    g_score[start_node] = 0
 
+    # f_score[n] = g_score[n] + heurística estimada al destino
+    f_score = {node: float('inf') for node in graph.nodes}
+    f_score[start_node] = heuristic(start_node)
+
+    # 4. Bucle principal del algoritmo A*
+    while open_set:
+        # Seleccionar nodo con menor f_score
+        current = min(open_set, key=lambda node: f_score[node])
+
+        # Si llegamos al destino, reconstruir el camino
         if current == end_node:
-            print("¡Destino alcanzado!") if debug else None
-            break
+            path_nodes = []
+            while current in came_from:
+                path_nodes.insert(0, current)
+                current = came_from[current]
+            path_nodes.insert(0, start_node)
 
-        unvisited.remove(current)
+            # Crear objeto Path con el camino encontrado
+            path = Path()
+            path.nodes = path_nodes
+            path.cost = g_score[end_node]
+            return path
 
-        for segment in graph.segments:
-            neighbor = None
-            if segment.origin == current:
-                neighbor = segment.destination
-            elif segment.destination == current:
-                neighbor = segment.origin
+        open_set.remove(current)
 
-            if neighbor and neighbor in unvisited:
-                new_dist = distances[current] + segment.cost
-                print(f"Vecino: {neighbor.name}, costo: {segment.cost}, nueva distancia: {new_dist}") if debug else None
+        # Explorar vecinos
+        for neighbor in current.neighbors:
+            # Calcular nuevo g_score tentativo
+            segment_cost = graph.get_segment_cost(current, neighbor)
+            if segment_cost is None:
+                continue  # No hay segmento entre estos nodos
 
-                if new_dist < distances[neighbor]:
-                    distances[neighbor] = new_dist
-                    previous[neighbor] = current
-                    print(f"Actualizada distancia a {neighbor.name} = {new_dist}") if debug else None
+            tentative_g = g_score[current] + segment_cost
 
-    if previous[end_node] is None and start_node != end_node:
-        print("No hay camino al nodo destino") if debug else None
-        return None
+            # Si encontramos un mejor camino al vecino
+            if tentative_g < g_score[neighbor]:
+                came_from[neighbor] = current
+                g_score[neighbor] = tentative_g
+                f_score[neighbor] = tentative_g + heuristic(neighbor)
+                if neighbor not in open_set:
+                    open_set.add(neighbor)
 
-    path_nodes = []
-    current = end_node
-    while current is not None:
-        path_nodes.insert(0, current)
-        current = previous[current]
-
-    print(f"Camino encontrado: {[n.name for n in path_nodes]}") if debug else None
-    print(f"Costo total: {distances[end_node]}") if debug else None
-
-    return Path(path_nodes, distances[end_node])
+    # Si llegamos aquí, no hay camino
+    return None
 
 def PlotPath(graph, path):
     import matplotlib.pyplot as plt
