@@ -31,10 +31,16 @@ class NavSegment:
 
 
 class NavAirport:
-    def __init__(self, name, sids, stars):  # Nota: minúsculas
+    def __init__(self, name, sids, stars):
         self.name = name
-        self.sids = sids  # Lista de números de puntos SID
-        self.stars = stars  # Lista de números de puntos STAR
+        self.sids = sids  # Lista de IDs de puntos SID
+        self.stars = stars  # Lista de IDs de puntos STAR
+
+    def get_first_sid_point(self, nav_points):
+        """Devuelve el primer punto SID del aeropuerto"""
+        if not self.sids:
+            return None
+        return next((p for p in nav_points if p.number == self.sids[0]), None)
 
 
 class AirSpace:
