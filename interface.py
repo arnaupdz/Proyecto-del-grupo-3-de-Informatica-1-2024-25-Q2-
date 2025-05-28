@@ -15,17 +15,13 @@ from PIL import Image, ImageTk
 
 
 
-
-
-
-
-
 class GraphApp:
   def __init__(self, root):
       self.root = root
       self.root.title("Airspace Route Explorer - Final Version")
       self.current_graph = None
       self.current_airspace = None
+      self.dark_mode = False
       self.selected_nodes = []
       self.current_segments_to_draw = None
       self.current_path = None
@@ -44,7 +40,6 @@ class GraphApp:
 
       # Estilo general
       self.setup_styles()
-
 
       # Crear frames
       self.sidebar_frame = tk.Frame(root, bg='#f0f0f0')
@@ -105,42 +100,33 @@ class GraphApp:
       # Cargar ejemplo inicial
       self.show_example1()
 
-
-
-
   def setup_styles(self):
       """Configura los estilos visuales de la interfaz"""
       style = ttk.Style()
       style.theme_use('clam')
 
+      # Configurar colores base según el modo
+      bg_color = '#f0f0f0'
+      fg_color = '#000000'
+      widget_bg = '#ffffff'
 
+      style.configure('TFrame', background=bg_color)
+      style.configure('TLabel', background=bg_color, font=('Helvetica', 9), foreground=fg_color)
+      style.configure('TButton', font=('Helvetica', 9), padding=5, background=widget_bg, foreground=fg_color)
+      style.configure('TLabelFrame', font=('Helvetica', 10, 'bold'), background=bg_color, foreground=fg_color)
+      style.configure('TCombobox', font=('Helvetica', 9), fieldbackground=widget_bg, foreground=fg_color)
+      style.configure('TRadiobutton', font=('Helvetica', 9), background=bg_color, foreground=fg_color)
+      style.configure('TEntry', font=('Helvetica', 9), fieldbackground=widget_bg, foreground=fg_color)
 
-
-      # Configurar colores
-      style.configure('TFrame', background='#f0f0f0')
-      style.configure('TLabel', background='#f0f0f0', font=('Helvetica', 9))
-      style.configure('TButton', font=('Helvetica', 9), padding=5)
-      style.configure('TLabelFrame', font=('Helvetica', 10, 'bold'), background='#f0f0f0')
-      style.configure('TCombobox', font=('Helvetica', 9))
-      style.configure('TRadiobutton', font=('Helvetica', 9), background='#f0f0f0')
-      style.configure('TEntry', font=('Helvetica', 9))
-
-
-
-
-      # Colores personalizados
+      # Colores personalizados para hover y estados
       style.map('TButton',
-                background=[('active', '#e0e0e0'), ('!disabled', '#ffffff')],
-                foreground=[('!disabled', '#000000')])
-
-
-
+                background=[('active', '#e0e0e0'),
+                            ('!disabled', widget_bg)],
+                foreground=[('!disabled', fg_color)])
 
       style.map('TCombobox',
-                fieldbackground=[('!disabled', '#ffffff')],
-                background=[('!disabled', '#ffffff')])
-
-
+                fieldbackground=[('!disabled', widget_bg)],
+                background=[('!disabled', widget_bg)])
 
 
   def setup_controls(self):
@@ -232,32 +218,6 @@ class GraphApp:
 
 
 
-
-      # Panel de nodos a evitar
-      avoid_frame = ttk.LabelFrame(self.control_frame, text="Avoid Nodes", padding=10)
-      avoid_frame.pack(fill=tk.X, pady=5)
-
-
-
-
-      self.avoid_listbox = tk.Listbox(avoid_frame, height=4, selectmode=tk.SINGLE)
-      self.avoid_listbox.pack(fill=tk.X, pady=2)
-
-
-
-
-      btn_frame = tk.Frame(avoid_frame, bg='#f0f0f0')
-      btn_frame.pack(fill=tk.X)
-
-
-
-
-      ttk.Button(btn_frame, text="Add to Avoid", command=self.add_to_avoid_list).pack(side=tk.LEFT, expand=True)
-      ttk.Button(btn_frame, text="Remove", command=self.remove_from_avoid_list).pack(side=tk.RIGHT, expand=True)
-
-
-
-
       # Panel de exportación KML
       kml_frame = ttk.LabelFrame(self.control_frame, text="Google Earth Export", padding=10)
       kml_frame.pack(fill=tk.X, pady=5)
@@ -280,16 +240,6 @@ class GraphApp:
       advanced_frame.pack(fill=tk.X, pady=5)
 
 
-
-
-      ttk.Button(advanced_frame, text="Find Alternative Path",
-                 command=self.find_alternative_path).pack(fill=tk.X, pady=2)
-      ttk.Button(advanced_frame, text="Optimize Route",
-                 command=self.optimize_route).pack(fill=tk.X, pady=2)
-
-
-
-
       # Panel de información
       info_frame = ttk.LabelFrame(self.control_frame, text="Information", padding=10)
       info_frame.pack(fill=tk.X, pady=5, expand=True)
@@ -308,9 +258,6 @@ class GraphApp:
       status_bar = tk.Label(self.control_frame, textvariable=self.status_var,
                             relief=tk.SUNKEN, anchor=tk.W, bg='#f0f0f0', fg='#333333')
       status_bar.pack(side=tk.BOTTOM, fill=tk.X)
-
-
-
 
   # =============================================
   # Métodos principales de interacción
@@ -348,7 +295,6 @@ class GraphApp:
       ax.set_ylim([ydata - new_height * (1 - rely), ydata + new_height * rely])
       self.canvas.draw_idle()
 
-
   def on_graph_click(self, event):
       """Maneja los clics en el gráfico"""
       if not event.inaxes:
@@ -363,44 +309,86 @@ class GraphApp:
           self.handle_graph_click(event)
 
   def handle_airspace_click(self, event):
-      """Maneja clics en modo airspace"""
+      """
+      Al hacer click en el espacio aéreo:
+      - Si haces click cerca de un aeropuerto, selecciona su SID (origen) o STAR (destino) según el número de selecciones previas.
+      - Si no, selecciona el navpoint más cercano (como antes).
+      """
       if not self.current_airspace or not self.current_airspace.nav_points:
-          self.update_info("Error: No navigation points loaded in airspace.")
           return
 
-      clicked_node = self.find_closest_navpoint(event.xdata, event.ydata)
-
-      if self.new_node_mode:
-          self.add_new_navpoint(event.xdata, event.ydata)
+      # --- PRIMERO: Busca aeropuerto cercano al click ---
+      airport = self.find_closest_airport(event.xdata, event.ydata, threshold=0.1)
+      if airport:
+          # Si es primer click, selecciona PRIMER SID; si es segundo, PRIMER STAR
+          if len(self.selected_nodes) == 0:
+              # Selecciona primer SID del aeropuerto ORIGEN
+              if hasattr(airport, 'sids') and airport.sids:
+                  sid_num = airport.sids[0]
+                  sid_point = next((p for p in self.current_airspace.nav_points if p.number == sid_num), None)
+                  if sid_point:
+                      self.selected_nodes = [sid_point]
+                      self.plot_airspace()
+                      self.update_info(f"Origen: {airport.name} (SID: {sid_point.name}) seleccionado")
+                      return
+                  else:
+                      self.update_info(f"El aeropuerto {airport.name} no tiene SID válido")
+                      return
+              else:
+                  self.update_info(f"El aeropuerto {airport.name} no tiene SIDs definidos")
+                  return
+          elif len(self.selected_nodes) == 1:
+              # Selecciona primer STAR del aeropuerto DESTINO
+              if hasattr(airport, 'stars') and airport.stars:
+                  star_num = airport.stars[0]
+                  star_point = next((p for p in self.current_airspace.nav_points if p.number == star_num), None)
+                  if star_point:
+                      self.selected_nodes.append(star_point)
+                      self.plot_airspace()
+                      self.update_info(f"Destino: {airport.name} (STAR: {star_point.name}) seleccionado")
+                      return
+                  else:
+                      self.update_info(f"El aeropuerto {airport.name} no tiene STAR válido")
+                      return
+              else:
+                  self.update_info(f"El aeropuerto {airport.name} no tiene STARs definidos")
+                  return
+          # Si ya hay dos seleccionados, puedes limpiar la selección o hacer nada.
           return
 
-      if self.new_segment_mode and clicked_node:
-          self.add_new_airspace_segment(clicked_node)
+      # --- Si NO se clicó ningún aeropuerto cercano, usa lógica anterior ---
+      clicked_point = self.find_closest_navpoint(event.xdata, event.ydata)
+      if not clicked_point:
           return
 
-      if not clicked_node:
-          return
+      self.select_navpoint(clicked_point)
 
-      if self.delete_mode:
-          return  # No permitir eliminar en airspace
+  def select_airport_sid_or_star(self, airport_code, mode):
+      """
+      Selecciona el PRIMER SID (modo='sid') o el PRIMER STAR (modo='star') de un aeropuerto.
+      """
+      airport = next((a for a in self.current_airspace.nav_airports if a.name == airport_code), None)
+      if not airport:
+          self.update_info(f"Aeropuerto {airport_code} no encontrado")
+          return None
 
-      mode = self.mode_var.get()
+      if mode == "sid":
+          if hasattr(airport, 'sids') and airport.sids:
+              sid_num = airport.sids[0]
+              point = next((p for p in self.current_airspace.nav_points if p.number == sid_num), None)
+              if point:
+                  return point
+          self.update_info(f"{airport_code} no tiene SIDs válidos")
+          return None
 
-      if mode == "select":
-          self.select_navpoint(clicked_node)
-      elif mode == "reach":
-          self.find_reachable_from(clicked_node.number)
-      elif mode == "path":
-          if len(self.selected_nodes) < 2:
-              self.select_navpoint(clicked_node)
-              if len(self.selected_nodes) == 2:
-                  self.find_shortest_path_between(
-                      self.selected_nodes[0].number,
-                      self.selected_nodes[1].number
-                  )
-
-
-
+      if mode == "star":
+          if hasattr(airport, 'stars') and airport.stars:
+              star_num = airport.stars[0]
+              point = next((p for p in self.current_airspace.nav_points if p.number == star_num), None)
+              if point:
+                  return point
+          self.update_info(f"{airport_code} no tiene STARs válidos")
+          return None
 
   def handle_graph_click(self, event):
       """Maneja clics en modo grafo normal"""
@@ -451,8 +439,6 @@ class GraphApp:
                   )
 
 
-
-
   # =============================================
   # Métodos de gestión de grafos
   # =============================================
@@ -471,56 +457,130 @@ class GraphApp:
       show_photo_btn = ttk.Button(extra_frame, text="Mostrar foto de grupo", command=self.show_group_photo)
       show_photo_btn.pack(fill=tk.X)
 
-
   def show_only_airports(self):
-      """Muestra solo los aeropuertos en el espacio aéreo"""
+      """Muestra los aeropuertos usando su primer SID como ubicación, considerando múltiples SIDs/STARs"""
       if not self.current_airspace:
+          messagebox.showwarning("Error", "No hay espacio aéreo cargado")
           return
-
 
       self.ax.clear()
 
+      # Diccionario de puntos de navegación por nombre (case insensitive)
+      nav_points_by_name = {p.name.upper(): p for p in self.current_airspace.nav_points}
 
-      # Dibujar solo aeropuertos
-      for airport in self.current_airspace.nav_airports:
-          first_sid = airport.get_first_sid_point(self.current_airspace.nav_points)
-          if first_sid:
-              # Dibujar aeropuerto
-              self.ax.plot(first_sid.longitude, first_sid.latitude, 's',
-                           markersize=12, color='purple')
-              self.ax.text(first_sid.longitude, first_sid.latitude + 0.04,
-                           airport.name, fontsize=10, ha='center',
-                           bbox=dict(facecolor='white', alpha=0.8))
+      # Procesar archivo de aeropuertos
+      airports_data = self.process_airport_file(nav_points_by_name)
 
+      # Dibujar aeropuertos
+      if airports_data:
+          self.draw_airports(airports_data)
+          self.update_status(f"Mostrando {len(airports_data)} aeropuertos")
+      else:
+          messagebox.showwarning("Advertencia", "No se encontraron aeropuertos válidos")
+          self.plot_airspace()
 
-      # Ajustar límites del gráfico
-      if self.current_airspace.nav_airports:
-          lons = [p.get_first_sid_point(self.current_airspace.nav_points).longitude
-                  for p in self.current_airspace.nav_airports
-                  if p.get_first_sid_point(self.current_airspace.nav_points)]
-          lats = [p.get_first_sid_point(self.current_airspace.nav_points).latitude
-                  for p in self.current_airspace.nav_airports
-                  if p.get_first_sid_point(self.current_airspace.nav_points)]
-
-
-          if lons and lats:
-              self.ax.set_xlim(min(lons) - 1, max(lons) + 1)
-              self.ax.set_ylim(min(lats) - 1, max(lats) + 1)
-
-
-      self.ax.set_title(f"{self.airspace_var.get()} - Airports Only", pad=20)
-      self.ax.set_xlabel("Longitude")
-      self.ax.set_ylabel("Latitude")
-      self.ax.grid(True, linestyle=':', alpha=0.3)
+      self.setup_map()
       self.canvas.draw()
 
+  def process_airport_file(self, nav_points_by_name):
+      """Procesa el archivo de aeropuertos y devuelve datos estructurados"""
+      airports_data = {}
+      current_airport = None
+      reading_sids = False
+      reading_stars = False
+
+      for line in self.get_airport_file_lines():
+          line = line.strip().upper()
+          if not line:
+              continue
+
+          # Detectar secciones
+          if line.endswith('.D'):
+              reading_sids = True
+              reading_stars = False
+          elif line.endswith('.A'):
+              reading_sids = False
+              reading_stars = True
+          elif line[:2] in ['LE', 'LF']:  # Código de aeropuerto
+              current_airport = line
+              airports_data[current_airport] = {'sids': [], 'stars': []}
+              reading_sids = False
+              reading_stars = False
+              continue
+
+          # Añadir puntos según la sección actual
+          if current_airport:
+              point = nav_points_by_name.get(line)
+              if point:
+                  if reading_sids:
+                      airports_data[current_airport]['sids'].append(point)
+                  elif reading_stars:
+                      airports_data[current_airport]['stars'].append(point)
+
+      return airports_data
+
+  def draw_airports(self, airports_data):
+      """Dibuja los aeropuertos en el mapa"""
+      lons, lats = [], []
+
+      for airport_name, data in airports_data.items():
+          # Usar el primer SID como ubicación, o el primer STAR si no hay SIDs
+          location_point = data['sids'][0] if data['sids'] else data['stars'][0] if data['stars'] else None
+          if not location_point:
+              continue
+
+          # Dibujar aeropuerto
+          self.ax.plot(location_point.longitude, location_point.latitude, 's',
+                       markersize=14, color='purple', zorder=5)
+          self.ax.text(location_point.longitude, location_point.latitude + 0.05,
+                       airport_name, fontsize=10, ha='center', weight='bold',
+                       bbox=dict(facecolor='white', alpha=0.8, edgecolor='purple'))
+
+          # Guardar coordenadas para ajustar vista
+          lons.append(location_point.longitude)
+          lats.append(location_point.latitude)
+
+          # Debug: mostrar info en consola
+          print(f"\nAeropuerto: {airport_name}")
+          print(f"Total SIDs: {len(data['sids'])}")
+          print(f"Total STARs: {len(data['stars'])}")
+
+      # Ajustar vista
+      if lons and lats:
+          padding = max(0.5, (max(lons) - min(lons)) * 0.1)
+          self.ax.set_xlim(min(lons) - padding, max(lons) + padding)
+          self.ax.set_ylim(min(lats) - padding, max(lats) + padding)
+
+  def setup_map(self):
+      """Configuración común del mapa"""
+      self.ax.set_title(f"Aeropuertos en {self.airspace_var.get()}", pad=15)
+      self.ax.set_xlabel("Longitud")
+      self.ax.set_ylabel("Latitud")
+      self.ax.grid(True, linestyle=':', alpha=0.3)
+
+  def get_airport_file_lines(self):
+      """Lee el archivo correspondiente a la región seleccionada"""
+      region = self.airspace_var.get()
+      filename = {
+          "Catalunya": "Cat_ger.txt",
+          "España": "Spa_ger.txt",
+          "Europa": "Eur_ger.txt"
+      }.get(region, "")
+
+      try:
+          with open(filename, 'r', encoding='utf-8') as f:
+              return [line.strip() for line in f if line.strip()]
+      except Exception as e:
+          messagebox.showerror("Error", f"No se pudo leer {filename}: {str(e)}")
+          return []
 
   def show_group_photo(self):
       """Muestra la imagen foto_grupo.png en una ventana nueva"""
       top = tk.Toplevel(self.root)
       top.title("Foto de grupo")
       try:
-          img = Image.open("foto_grupo.png")
+          img = Image.open(r"C:\Users\ferra\OneDrive\Imágenes\foto_grupo.jpg")
+
           img.thumbnail((600, 450))
           tkimg = ImageTk.PhotoImage(img)
           label = tk.Label(top, image=tkimg)
@@ -528,7 +588,6 @@ class GraphApp:
           label.pack()
       except Exception as e:
           tk.Label(top, text=f"No se pudo cargar la imagen: {e}").pack()
-
 
   def add_new_node(self, x, y):
       """Añade un nuevo nodo al grafo"""
@@ -593,9 +652,6 @@ class GraphApp:
       ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=10, pady=10)
       entry.focus_set()
 
-
-
-
   def add_new_segment(self, node):
       """Añade un nuevo segmento al grafo"""
       if self.current_airspace:
@@ -651,9 +707,6 @@ class GraphApp:
           self.selected_nodes = []
           self.new_segment_mode = False
           self.mode_var.set("select")  # Volver al modo selección
-
-
-
 
   def delete_node(self, node):
       """Elimina un nodo del grafo"""
@@ -756,7 +809,6 @@ class GraphApp:
           self.selected_nodes = []
           self.new_segment_mode = False
 
-
   def load_graph(self):
       file_path = filedialog.askopenfilename(
           title="Load Graph",
@@ -827,9 +879,6 @@ class GraphApp:
           messagebox.showerror("Error", f"Error al cargar el archivo:\n{str(e)}")
           self.update_status(f"Error loading graph: {str(e)}")
 
-
-
-
   def save_graph(self):
       """Guarda el grafo actual en un archivo"""
       if not self.current_graph or len(self.current_graph.nodes) == 0:
@@ -870,9 +919,6 @@ class GraphApp:
           messagebox.showerror("Error", f"Failed to save graph: {str(e)}")
           self.update_status("Error saving graph")
 
-
-
-
   def clear_graph(self):
       """Limpia el grafo actual"""
       self.current_graph = Graph()
@@ -881,13 +927,9 @@ class GraphApp:
       self.plot_graph()
       self.update_status("Graph cleared")
 
-
-
-
   # =============================================
   # Métodos de análisis de grafos
   # =============================================
-
 
   def find_reachable_from(self, start_name):
       """Encuentra nodos alcanzables desde un nodo dado y resalta solo los segmentos conectados"""
@@ -948,9 +990,6 @@ class GraphApp:
           self.update_info(f"Nodes reachable from {start_name}:\n" +
                            "\n".join([f"- {node.name}" for node in reachable_nodes]))
 
-
-
-
   def find_reachable_in_airspace(self, start_name):
       """Encuentra nodos alcanzables en espacio aéreo"""
       start_point = next((p for p in self.current_airspace.nav_points
@@ -1001,9 +1040,6 @@ class GraphApp:
       self.update_info(f"Nodes reachable from {start_point.name}:\n" +
                        "\n".join([f"- {p.name}" for p in reachable]))
 
-
-
-
   def find_reachable_in_graph(self, start_name):
       """Encuentra nodos alcanzables en grafo normal"""
       reachable_nodes = GetReachableNodes(self.current_graph, start_name)
@@ -1020,92 +1056,272 @@ class GraphApp:
                        "\n".join([f"- {node.name}" for node in reachable_nodes]))
 
   def find_shortest_path_between(self, start_name, end_name):
-      """Encuentra y dibuja el camino más corto entre dos puntos"""
+      """Versión nueva que maneja correctamente aeropuertos"""
+      # Si ambos son códigos de aeropuerto (LEBL, LEMD, etc.)
+      if isinstance(start_name, str) and start_name[:2] in ['LE', 'LF'] and \
+              isinstance(end_name, str) and end_name[:2] in ['LE', 'LF']:
+          self.find_shortest_path_between_airports(start_name, end_name)
+          return
+
+      # Si es modo airspace, busca los puntos por número o nombre
       if self.current_airspace:
-          # 1. Obtener los puntos de inicio y fin
-          start_point = next((p for p in self.current_airspace.nav_points
-                              if p.number == start_name), None)
-          end_point = next((p for p in self.current_airspace.nav_points
-                            if p.number == end_name), None)
-
-          if not start_point or not end_point:
-              self.update_info("Error: Puntos no encontrados")
+          # Buscar por número si es int, si no por nombre
+          if isinstance(start_name, int):
+              start = next((p for p in self.current_airspace.nav_points if p.number == start_name), None)
+          else:
+              start = next((p for p in self.current_airspace.nav_points if p.name == start_name), None)
+          if isinstance(end_name, int):
+              end = next((p for p in self.current_airspace.nav_points if p.number == end_name), None)
+          else:
+              end = next((p for p in self.current_airspace.nav_points if p.name == end_name), None)
+          if not start or not end:
+              self.update_info("Punto(s) no encontrado(s)")
               return
-
-          # 2. Implementación del algoritmo A*
-          open_set = {start_point.number}
-          came_from = {}
-          g_score = {p.number: float('inf') for p in self.current_airspace.nav_points}
-          g_score[start_point.number] = 0
-          f_score = {p.number: float('inf') for p in self.current_airspace.nav_points}
-          f_score[start_point.number] = self.heuristic(start_point, end_point)
-
-          while open_set:
-              current_num = min(open_set, key=lambda x: f_score[x])
-              if current_num == end_point.number:
-                  # Reconstruir el camino
-                  path_points = []
-                  current = end_point.number
-                  while current in came_from:
-                      path_points.append(next(p for p in self.current_airspace.nav_points
-                                              if p.number == current))
-                      current = came_from[current]
-                  path_points.append(start_point)
-                  path_points.reverse()
-
-                  # Crear objeto Path
-                  path = Path()
-                  path.points = path_points
-                  path.cost = g_score[end_point.number]
-
-                  self.current_path = path
-                  self.plot_airspace()
-                  self.update_info(f"Camino más corto:\n{' -> '.join([p.name for p in path_points])}\n"
-                                   f"Distancia total: {path.cost:.2f} km")
-                  return
-
-              open_set.remove(current_num)
-
-              # Explorar vecinos
-              for seg in self.current_airspace.nav_segments:
-                  if seg.origin_number == current_num:
-                      neighbor_num = seg.destination_number
-                      tentative_g = g_score[current_num] + seg.distance
-
-                      if tentative_g < g_score.get(neighbor_num, float('inf')):
-                          came_from[neighbor_num] = current_num
-                          g_score[neighbor_num] = tentative_g
-                          neighbor_point = next((p for p in self.current_airspace.nav_points
-                                                 if p.number == neighbor_num), None)
-                          if neighbor_point:
-                              f_score[neighbor_num] = tentative_g + self.heuristic(neighbor_point, end_point)
-                              if neighbor_num not in open_set:
-                                  open_set.add(neighbor_num)
-
-          self.update_info("No hay camino entre los puntos seleccionados")
+          self.find_shortest_path_between_points(start.number, end.number)
       else:
+          # Grafo normal
           path = FindShortestPath(self.current_graph, start_name, end_name)
           if path:
               self.current_path = path
+              self.current_segments_to_draw = []
+              for i in range(len(path.nodes) - 1):
+                  origin = path.nodes[i]
+                  dest = path.nodes[i + 1]
+                  segment = next((s for s in self.current_graph.segments
+                                  if (s.origin == origin and s.destination == dest) or
+                                  (s.origin == dest and s.destination == origin)), None)
+                  if segment:
+                      self.current_segments_to_draw.append(segment)
               self.plot_graph()
-              path_names = [node.name for node in path.nodes]
-              self.update_info(f"Camino más corto:\n{' -> '.join(path_names)}\nCosto total: {path.cost:.2f}")
+              path_info = f"Shortest path from {path.nodes[0].name} to {path.nodes[-1].name}:\n"
+              path_info += " -> ".join([node.name for node in path.nodes]) + "\n"
+              path_info += f"Total cost: {path.cost:.2f}\n"
+              path_info += "=== ONLY PATH SEGMENTS SHOWN ==="
+              self.update_info(path_info)
           else:
-              self.update_info(f"No existe camino entre {start_name} y {end_name}")
+              start_node = next((n for n in self.current_graph.nodes if n.name == start_name), None)
+              end_node = next((n for n in self.current_graph.nodes if n.name == end_name), None)
+              if start_node and end_node:
+                  self.update_info(f"No path exists between {start_name} and {end_name}")
+              else:
+                  missing = []
+                  if not start_node:
+                      missing.append(start_name)
+                  if not end_node:
+                      missing.append(end_name)
+                  self.update_info(f"Node(s) not found: {', '.join(missing)}")
 
+  def select_airport_point(self, airport_code, mode):
+      """
+      Selecciona el PRIMER SID o el PRIMER STAR de un aeropuerto según el modo.
+      mode: "sid" para origen, "star" para destino
+      """
+      airport = next((a for a in self.current_airspace.nav_airports if a.name == airport_code), None)
+      if not airport:
+          self.update_info(f"Aeropuerto {airport_code} no encontrado")
+          return None
 
+      if mode == "sid":
+          if hasattr(airport, 'sids') and airport.sids:
+              sid_num = airport.sids[0]
+              point = next((p for p in self.current_airspace.nav_points if p.number == sid_num), None)
+              if point:
+                  self.selected_nodes = [point]
+                  self.plot_airspace()
+                  self.update_info(f"SID seleccionado de {airport_code}: {point.name}")
+                  return point
+              else:
+                  self.update_info(f"SID {sid_num} no encontrado para {airport_code}")
+                  return None
+          else:
+              self.update_info(f"{airport_code} no tiene SIDs definidos")
+              return None
+      elif mode == "star":
+          if hasattr(airport, 'stars') and airport.stars:
+              star_num = airport.stars[0]
+              point = next((p for p in self.current_airspace.nav_points if p.number == star_num), None)
+              if point:
+                  self.selected_nodes = [point]
+                  self.plot_airspace()
+                  self.update_info(f"STAR seleccionado de {airport_code}: {point.name}")
+                  return point
+              else:
+                  self.update_info(f"STAR {star_num} no encontrado para {airport_code}")
+                  return None
+          else:
+              self.update_info(f"{airport_code} no tiene STARs definidos")
+              return None
+
+  def find_shortest_path_between_airports(self, start_airport_code, end_airport_code):
+      """Encuentra el camino más corto entre dos aeropuertos usando SID origen y STAR destino."""
+      if not self.current_airspace:
+          self.update_info("Error: No hay espacio aéreo cargado")
+          return
+
+      start_airport = next((a for a in self.current_airspace.nav_airports if a.name == start_airport_code), None)
+      end_airport = next((a for a in self.current_airspace.nav_airports if a.name == end_airport_code), None)
+
+      if not start_airport or not end_airport:
+          missing = []
+          if not start_airport:
+              missing.append(f"Origen: {start_airport_code}")
+          if not end_airport:
+              missing.append(f"Destino: {end_airport_code}")
+          self.update_info(f"Aeropuertos no encontrados:\n" + "\n".join(missing))
+          return
+
+      # SID origen
+      if not hasattr(start_airport, 'sids') or not start_airport.sids:
+          self.update_info(f"El aeropuerto {start_airport_code} no tiene SIDs definidos")
+          return
+      start_sid_num = start_airport.sids[0]
+      start_point = next((p for p in self.current_airspace.nav_points if p.number == start_sid_num), None)
+
+      # STAR destino
+      if not hasattr(end_airport, 'stars') or not end_airport.stars:
+          self.update_info(f"El aeropuerto {end_airport_code} no tiene STARs definidos")
+          return
+      end_star_num = end_airport.stars[0]
+      end_point = next((p for p in self.current_airspace.nav_points if p.number == end_star_num), None)
+
+      if not start_point or not end_point:
+          missing = []
+          if not start_point:
+              missing.append(f"SID {start_sid_num} no encontrado")
+          if not end_point:
+              missing.append(f"STAR {end_star_num} no encontrado")
+          self.update_info(f"Puntos no encontrados:\n" + "\n".join(missing))
+          return
+
+      # Buscar camino entre SID y STAR
+      self.find_shortest_path_between_points(start_point.number, end_point.number, start_airport_code, end_airport_code)
+
+  def find_shortest_path_between_points(self, start_num, end_num, start_name="", end_name=""):
+      """Busca el camino más corto entre dos puntos de navegación (A* básico para airspace)."""
+      start_point = next((p for p in self.current_airspace.nav_points if p.number == start_num), None)
+      end_point = next((p for p in self.current_airspace.nav_points if p.number == end_num), None)
+      if not start_point or not end_point:
+          self.update_info("Punto(s) no encontrado(s)")
+          return
+
+      # Algoritmo A* (igual que ya tenías en find_shortest_path_between_airports)
+      open_set = {start_point.number}
+      came_from = {}
+      g_score = {p.number: float('inf') for p in self.current_airspace.nav_points}
+      g_score[start_point.number] = 0
+      f_score = {p.number: float('inf') for p in self.current_airspace.nav_points}
+      f_score[start_point.number] = self.heuristic(start_point, end_point)
+
+      while open_set:
+          current_num = min(open_set, key=lambda x: f_score[x])
+          if current_num == end_point.number:
+              # Reconstruir camino
+              path_points = []
+              current = end_point.number
+              while current in came_from:
+                  path_points.append(next(p for p in self.current_airspace.nav_points if p.number == current))
+                  current = came_from[current]
+              path_points.append(start_point)
+              path_points.reverse()
+              total_distance = g_score[end_point.number]
+              self.current_segments_to_draw = []
+              for i in range(len(path_points) - 1):
+                  origin_num = path_points[i].number
+                  dest_num = path_points[i + 1].number
+                  segment = next((s for s in self.current_airspace.nav_segments
+                                  if (s.origin_number == origin_num and s.destination_number == dest_num) or
+                                  (s.origin_number == dest_num and s.destination_number == origin_num)), None)
+                  if segment:
+                      self.current_segments_to_draw.append(segment)
+
+              # Crea un objeto tipo Path para guardar el resultado
+              class PathObj:
+                  pass
+
+              path = PathObj()
+              path.points = path_points
+              path.cost = total_distance
+              self.current_path = path
+              self.plot_airspace()
+              path_info = f"Shortest path from {start_name or start_point.name} to {end_name or end_point.name}:\n"
+              path_info += " -> ".join([p.name for p in path_points]) + "\n"
+              path_info += f"Total distance: {total_distance:.2f} km\n"
+              path_info += "=== ONLY PATH SEGMENTS SHOWN ==="
+              self.update_info(path_info)
+              return
+          open_set.remove(current_num)
+          for seg in self.current_airspace.nav_segments:
+              if seg.origin_number == current_num:
+                  neighbor_num = seg.destination_number
+                  tentative_g = g_score[current_num] + seg.distance
+                  if tentative_g < g_score.get(neighbor_num, float('inf')):
+                      came_from[neighbor_num] = current_num
+                      g_score[neighbor_num] = tentative_g
+                      neighbor_point = next((p for p in self.current_airspace.nav_points if p.number == neighbor_num),
+                                            None)
+                      if neighbor_point:
+                          f_score[neighbor_num] = tentative_g + self.heuristic(neighbor_point, end_point)
+                          if neighbor_num not in open_set:
+                              open_set.add(neighbor_num)
+      self.update_info(f"No path exists between {start_name or start_point.name} and {end_name or end_point.name}")
+
+  def get_airport_points(self, airport_code):
+      """Devuelve todos los puntos asociados a un aeropuerto (SIDs y STARs)"""
+      airport = next((a for a in self.current_airspace.nav_airports if a.name == airport_code), None)
+      if not airport:
+          return []
+      points = []
+      if hasattr(airport, 'sids'):
+          points.extend([p for p in self.current_airspace.nav_points if p.number in airport.sids])
+      if hasattr(airport, 'stars'):
+          points.extend([p for p in self.current_airspace.nav_points if p.number in airport.stars])
+      return points
+
+  def select_airport(self, airport_code):
+      """Selecciona visualmente un aeropuerto y resalta sus rutas"""
+      points = self.get_airport_points(airport_code)
+      if not points:
+          self.update_info(f"Aeropuerto {airport_code} no tiene puntos asociados")
+          return
+
+      # Selecciona el primer SID como punto principal
+      first_sid = next(
+          (p for p in points if
+           p.number in next(a.sids for a in self.current_airspace.nav_airports if a.name == airport_code)),
+          points[0]
+      )
+
+      self.selected_nodes = [first_sid]
+      self.current_segments_to_draw = [
+          seg for seg in self.current_airspace.nav_segments
+          if seg.origin_number in [p.number for p in points] or
+             seg.destination_number in [p.number for p in points]
+      ]
+      self.plot_airspace()
+      self.update_info(
+          f"Aeropuerto {airport_code} seleccionado\n"
+          f"Punto principal: {first_sid.name}\n"
+          f"Total rutas: {len(self.current_segments_to_draw)}"
+      )
+
+  def get_airport_for_point(self, navpoint):
+      """Devuelve el aeropuerto asociado a un punto de navegación (SID/STAR), si existe."""
+      if not navpoint:
+          return None
+      for airport in self.current_airspace.nav_airports:
+          if hasattr(airport, 'sids') and navpoint.number in airport.sids:
+              return airport
+          if hasattr(airport, 'stars') and navpoint.number in airport.stars:
+              return airport
+      return None
 
   def find_shortest_path_in_graph(self, start_name, end_name):
       path = FindShortestPath(self.current_graph, start_name, end_name)
-
-
-
 
   def heuristic(self, point1, point2):
       """Distancia euclidiana entre dos puntos para A*"""
       return ((point1.longitude - point2.longitude) ** 2 +
               (point1.latitude - point2.latitude) ** 2) ** 0.5
-
 
   def show_node_neighbors(self):
       """Muestra los vecinos de un nodo seleccionado y resalta solo los segmentos conectados"""
@@ -1113,9 +1329,7 @@ class GraphApp:
           messagebox.showwarning("Warning", "Please select a node first")
           return
 
-
       self.current_segments_to_draw = []
-
 
       if self.current_airspace:
           node = self.selected_nodes[0]
@@ -1137,7 +1351,12 @@ class GraphApp:
           self.node_neighbors = neighbors
           self.current_segments_to_draw = segments_to_draw
           self.plot_airspace()
-          self.update_info(f"Neighbors of {node.name}:\n" + "\n".join(neighbors))
+
+          # Create highlighted info text
+          info_text = f"Neighbors of {node.name}:\n"
+          info_text += "\n".join([f"- {n}" for n in neighbors])
+          info_text += "\n\n=== ONLY NEIGHBORING SEGMENTS SHOWN ==="
+          self.update_info(info_text)
       else:
           node = self.selected_nodes[0]
           neighbors = []
@@ -1156,7 +1375,6 @@ class GraphApp:
                                      for seg in segments_to_draw]
           self.plot_graph()
           self.update_info(f"Neighbors of {node.name}:\n" + "\n".join(neighbors))
-
 
   def clear_analysis(self):
       """Limpia los resultados del análisis"""
@@ -1178,18 +1396,13 @@ class GraphApp:
 
       self.update_info("Analysis cleared")
 
-
-
-
   # =============================================
   # Métodos de visualización
   # =============================================
 
-
   def plot_graph(self):
       if not self.current_graph:
           return
-
 
       self.ax.clear()
 
@@ -1306,7 +1519,6 @@ class GraphApp:
       self.ax.grid(True, alpha=0.2)
       self.canvas.draw()
 
-
   def plot_airspace(self):
       """Dibuja el espacio aéreo actual mostrando aeropuertos correctamente y permitiendo mostrar solo aeropuertos si está activado el filtro."""
       if not self.current_airspace:
@@ -1416,15 +1628,9 @@ class GraphApp:
       # Resetea la bandera para que solo afecte a una llamada
       self.only_airports_visible = False
 
-
-
-
   # =============================================
   # Métodos de espacio aéreo
   # =============================================
-
-
-
 
   def load_airspace(self, event=None):
       """Carga los datos del espacio aéreo seleccionado"""
@@ -1466,37 +1672,63 @@ class GraphApp:
           messagebox.showerror("Error", f"Failed to load airspace: {str(e)}")
           self.update_status("Error loading airspace")
 
-
-
-
   def find_closest_navpoint(self, lon, lat):
-      """Encuentra el punto de navegación más cercano a las coordenadas dadas"""
+      """Encuentra el punto de navegación más cercano, con prioridad a SIDs de aeropuertos"""
       if not self.current_airspace:
           return None
 
+      closest_point = None
+      min_distance = float('inf')
 
+      # Primera pasada: buscar solo SIDs de aeropuertos
+      for airport in self.current_airspace.nav_airports:
+          if hasattr(airport, 'sids'):
+              for sid_num in airport.sids:
+                  point = next((p for p in self.current_airspace.nav_points
+                                if p.number == sid_num), None)
+                  if point:
+                      distance = (point.longitude - lon) ** 2 + (point.latitude - lat) ** 2
+                      if distance < min_distance and distance < 0.01:  # Umbral de 0.01 grados
+                          min_distance = distance
+                          closest_point = point
 
+      # Si no encontramos SIDs cercanos, buscar cualquier punto
+      if closest_point is None:
+          for point in self.current_airspace.nav_points:
+              distance = (point.longitude - lon) ** 2 + (point.latitude - lat) ** 2
+              if distance < min_distance and distance < 0.01:  # Mismo umbral
+                  min_distance = distance
+                  closest_point = point
 
-      closest = None
+      return closest_point
+
+  def find_closest_airport(self, lon, lat, threshold=0.1):
+      """
+      Devuelve el aeropuerto más cercano al click, si está a menos de threshold (en grados).
+      """
+      if not self.current_airspace or not self.current_airspace.nav_airports:
+          return None
+
+      closest_airport = None
       min_dist = float('inf')
 
-
-
-
-      for point in self.current_airspace.nav_points:
-          dist = (point.longitude - lon) ** 2 + (point.latitude - lat) ** 2
-          if dist < min_dist:
-              min_dist = dist
-              closest = point
-
-
-
-
-      # Solo devolver si está suficientemente cerca (umbral de 0.01 grados)
-      return closest if min_dist < 0.01 else None
-
-
-
+      for airport in self.current_airspace.nav_airports:
+          # Usa la posición del primer SID si existe, si no la del primer STAR, si no ignora
+          pos = None
+          if hasattr(airport, 'sids') and airport.sids:
+              sid_point = next((p for p in self.current_airspace.nav_points if p.number == airport.sids[0]), None)
+              if sid_point:
+                  pos = (sid_point.longitude, sid_point.latitude)
+          elif hasattr(airport, 'stars') and airport.stars:
+              star_point = next((p for p in self.current_airspace.nav_points if p.number == airport.stars[0]), None)
+              if star_point:
+                  pos = (star_point.longitude, star_point.latitude)
+          if pos is not None:
+              dist = (pos[0] - lon) ** 2 + (pos[1] - lat) ** 2
+              if dist < min_dist and dist < threshold ** 2:
+                  min_dist = dist
+                  closest_airport = airport
+      return closest_airport
 
   def select_navpoint(self, navpoint):
       """Maneja la selección de un punto de navegación"""
@@ -1512,15 +1744,9 @@ class GraphApp:
       info_text += f"Coordinates: {navpoint.latitude:.6f}, {navpoint.longitude:.6f}"
       self.update_info(info_text)
 
-
-
-
   # =============================================
   # Métodos de exportación KML
   # =============================================
-
-
-
 
   def export_current_to_kml(self):
       """Exporta el grafo o espacio aéreo actual a KML"""
@@ -1565,9 +1791,6 @@ class GraphApp:
       except Exception as e:
           messagebox.showerror("Error", f"Failed to export KML: {str(e)}")
           self.update_status("Error exporting KML")
-
-
-
 
   def export_path_to_kml(self):
       """Exporta el camino actual a KML"""
@@ -1624,9 +1847,6 @@ class GraphApp:
           messagebox.showerror("Error", f"Failed to export path: {str(e)}")
           self.update_status("Error exporting path")
 
-
-
-
   def open_in_google_earth(self):
       """Abre el último archivo KML generado en Google Earth"""
       if not hasattr(self, 'last_kml_file') or not os.path.exists(self.last_kml_file):
@@ -1643,15 +1863,9 @@ class GraphApp:
           messagebox.showerror("Error", f"Failed to open Google Earth: {str(e)}")
           self.update_status("Error opening Google Earth")
 
-
-
-
   # =============================================
   # Funcionalidades avanzadas
   # =============================================
-
-
-
 
   def add_to_avoid_list(self):
       """Añade nodos seleccionados a la lista de evitados"""
@@ -1691,9 +1905,6 @@ class GraphApp:
 
       self.update_status(f"Added {node_id} to avoid list")
 
-
-
-
   def remove_from_avoid_list(self):
       """Elimina nodos de la lista de evitados"""
       selection = self.avoid_listbox.curselection()
@@ -1721,17 +1932,11 @@ class GraphApp:
 
       self.update_status(f"Removed {node_id} from avoid list")
 
-
-
-
   def update_avoid_listbox(self):
       """Actualiza la lista de nodos a evitar"""
       self.avoid_listbox.delete(0, tk.END)
       for node_id in sorted(self.avoid_nodes):
           self.avoid_listbox.insert(tk.END, node_id)
-
-
-
 
   def find_alternative_path(self):
       """Encuentra un camino alternativo evitando nodos seleccionados"""
@@ -1775,11 +1980,6 @@ class GraphApp:
               self.update_info(f"No alternative path exists between {start_name} and {end_name} " +
                                f"while avoiding {len(self.avoid_nodes)} nodes")
 
-
-
-
-
-
   def optimize_route(self):
       """Optimiza la ruta considerando múltiples factores"""
       if len(self.selected_nodes) < 2:
@@ -1793,15 +1993,9 @@ class GraphApp:
       # (por ejemplo, menor número de segmentos, menor costo total, etc.)
       pass
 
-
-
-
   # =============================================
   # Métodos auxiliares
   # =============================================
-
-
-
 
   def show_example1(self):
       """Carga el primer grafo de ejemplo"""
@@ -1811,9 +2005,6 @@ class GraphApp:
       self.clear_analysis()
       self.plot_graph()
 
-
-
-
   def show_example2(self):
       """Carga el segundo grafo de ejemplo"""
       self.update_status("Loading example graph 2...")
@@ -1821,9 +2012,6 @@ class GraphApp:
       self.current_airspace = None
       self.clear_analysis()
       self.plot_graph()
-
-
-
 
   def select_node(self, node):
       """Maneja la selección de un nodo en grafo normal"""
@@ -1863,7 +2051,6 @@ class GraphApp:
 
       self.mode_var.set("select")
 
-
   def toggle_delete_mode(self):
       """Activa/desactiva el modo de eliminar"""
       if self.current_airspace:
@@ -1890,24 +2077,15 @@ class GraphApp:
 
       self.mode_var.set("select")
 
-
-
-
   def update_info(self, message):
       """Actualiza el panel de información"""
       self.info_text.delete(1.0, tk.END)
       self.info_text.insert(tk.END, message)
 
-
-
-
   def update_status(self, message):
       """Actualiza la barra de estado"""
       self.status_var.set(message)
       self.root.update_idletasks()
-
-
-
 
   def find_reachable_interactive(self):
       """Maneja la búsqueda de nodos alcanzables desde la interfaz"""
@@ -1923,34 +2101,19 @@ class GraphApp:
       else:
           self.find_reachable_from(self.selected_nodes[0].name)
 
-
-
-
   def find_shortest_path_interactive(self):
-      """Maneja la búsqueda de camino más corto desde la interfaz"""
+      """Busca camino entre puntos seleccionados (SID origen, STAR destino)"""
       if len(self.selected_nodes) < 2:
-          messagebox.showwarning("Warning", "Please select two points first")
+          messagebox.showwarning("Warning", "Selecciona dos aeropuertos primero")
           return
 
-
-
-
-      if self.current_airspace:
-          self.find_shortest_path_between(
-              self.selected_nodes[0].number,
-              self.selected_nodes[1].number
-          )
-      else:
-          self.find_shortest_path_between(
-              self.selected_nodes[0].name,
-              self.selected_nodes[1].name
-          )
-
-
-
-
-
-
+      # Los selected_nodes[0] y selected_nodes[1] ya son el primer SID y el primer STAR
+      self.find_shortest_path_between_points(
+          self.selected_nodes[0].number,
+          self.selected_nodes[1].number,
+          self.selected_nodes[0].name,
+          self.selected_nodes[1].name
+      )
 
 
 if __name__ == "__main__":
