@@ -15,3 +15,5 @@ Versión 3 generada por Ferran y Arnau
 Versión 3 verificada por Ferran y Arnau
 Versión 3 comunicada por Miquel
 URL del video: https://drive.google.com/file/d/1f1gWTsATCjP3bvknmcM04oO1H8kR-P9g/view?usp=sharing
+
+VIDEO FINAL PROYECTO: https://youtu.be/NG2bYvFt81Q
