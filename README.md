@@ -3,7 +3,7 @@ Proyecto del grupo 3 de Informatica 1 (2024-2025)
 Versión 1 generada por Miquel y Arnau
 Versión 1 verificada por Miquel y Arnau
 Versión 1 comunicada por Ferran
-URL del video: XXXXX
+URL del video: https://youtu.be/N2xeiz0xm78
 
 
 Versión 2 generada por Ferran y Miquel
